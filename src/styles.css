@@ -436,6 +436,8 @@ button.ghost {
   padding: 1rem;
   background: rgba(24, 27, 21, 0.34);
   z-index: 40;
+  pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .overlay-card {
@@ -444,6 +446,9 @@ button.ghost {
   overflow: auto;
   padding: 1.2rem;
   box-shadow: 0 20px 50px rgba(26, 30, 29, 0.26);
+  pointer-events: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .overlay-card__header {
@@ -472,6 +477,8 @@ button.ghost {
   overflow: auto;
   padding-right: 0.3rem;
   scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .overlay-actions {
@@ -664,6 +671,8 @@ button.ghost {
   max-height: 60vh;
   overflow: auto;
   padding-right: 0.2rem;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .inventory-slot {
@@ -980,6 +989,23 @@ button.ghost {
 }
 
 
+
+
+
+
+.app-shell.has-overlay .mobile-look-area,
+.app-shell.has-overlay .mobile-pad,
+.app-shell.has-overlay .mobile-actions,
+.app-shell.has-overlay .hotbar,
+.app-shell.has-overlay .hud-menu-button {
+  pointer-events: none;
+}
+
+.overlay button,
+.overlay .inventory-slot {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
 
 
 

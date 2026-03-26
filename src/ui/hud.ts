@@ -81,6 +81,7 @@ type CreateWorldHandler = (payload: {
 
 export class HudController {
   readonly root: HTMLElement;
+  readonly appShellEl: HTMLElement;
   readonly canvasMount: HTMLElement;
   readonly messageEl: HTMLElement;
   readonly hudEl: HTMLElement;
@@ -111,6 +112,7 @@ export class HudController {
   constructor(root: HTMLElement) {
     this.root = root;
     this.root.innerHTML = this.template();
+    this.appShellEl = this.require(".app-shell");
     this.canvasMount = this.require("#canvas-mount");
     this.messageEl = this.require("#message-banner");
     this.hudEl = this.require("#hud");
@@ -283,22 +285,26 @@ export class HudController {
     for (const button of this.hotbarEl.querySelectorAll<HTMLButtonElement>(
       "[data-hotbar-index]",
     )) {
-      button.onpointerdown = (event) => {
-        event.preventDefault();
-        event.stopPropagation();
+      this.bindPress(button, () => {
         const raw = button.dataset.hotbarIndex;
         if (raw && this.onHotbarSelect) {
           this.onHotbarSelect(Number(raw));
         }
-      };
+      });
     }
   }
 
   showOverlay(model: OverlayModel | null): void {
     if (!model) {
+      this.appShellEl.classList.remove("has-overlay");
       this.overlayEl.hidden = true;
       this.overlayEl.style.display = "none";
       this.overlayEl.innerHTML = "";
+      this.overlayEl.onclick = null;
+      this.overlayEl.ontouchstart = null;
+      this.overlayEl.ontouchmove = null;
+      this.overlayEl.ontouchcancel = null;
+      this.overlayEl.ontouchend = null;
       return;
     }
 
@@ -306,6 +312,7 @@ export class HudController {
       .map(
         (action) => `
           <button
+            type="button"
             class="overlay-action"
             data-overlay-action="${action.id}"
             ${action.disabled ? "disabled" : ""}
@@ -348,7 +355,7 @@ export class HudController {
         )
       : "";
     const closeMarkup = model.closable
-      ? '<button class="overlay-close" data-overlay-action="close">Close</button>'
+      ? '<button type="button" class="overlay-close" data-overlay-action="close">Close</button>'
       : "";
     const linesMarkup = model.lines?.length
       ? `<ul class="overlay-list">${model.lines.map((line) => `<li>${line}</li>`).join("")}</ul>`
@@ -417,6 +424,7 @@ export class HudController {
         </div>
       `;
 
+    this.appShellEl.classList.add("has-overlay");
     this.overlayEl.hidden = false;
     this.overlayEl.style.display = "grid";
     this.overlayEl.innerHTML = `
@@ -433,32 +441,7 @@ export class HudController {
       </section>
     `;
 
-    for (const button of this.overlayEl.querySelectorAll<HTMLButtonElement>(
-      "[data-overlay-action]",
-    )) {
-      button.onclick = () => {
-        const actionId = button.dataset.overlayAction;
-        if (actionId && this.onOverlayAction) {
-          this.onOverlayAction(actionId);
-        }
-      };
-    }
-
-    for (const button of this.overlayEl.querySelectorAll<HTMLButtonElement>(
-      "[data-slot-container]",
-    )) {
-      button.onclick = () => {
-        const container = button.dataset.slotContainer;
-        const rawIndex = button.dataset.slotIndex;
-        if (
-          this.onOverlaySlotClick &&
-          rawIndex &&
-          (container === "player" || container === "chest" || container === "creative")
-        ) {
-          this.onOverlaySlotClick(container, Number(rawIndex));
-        }
-      };
-    }
+    this.bindOverlayInteractions();
   }
 
   private recipeCardMarkup(recipe: OverlayRecipeCard): string {
@@ -479,7 +462,7 @@ export class HudController {
             .map((ingredient) => this.ingredientTokenMarkup(ingredient.itemId, ingredient.count))
             .join("")}
         </div>
-        <button class="overlay-action recipe-card__button" data-overlay-action="${recipe.actionId}" ${
+        <button type="button" class="overlay-action recipe-card__button" data-overlay-action="${recipe.actionId}" ${
           recipe.disabled ? "disabled" : ""
         }>
           Craft ${resultLabel}
@@ -499,6 +482,156 @@ export class HudController {
         `;
       })
       .join("");
+  }
+
+  private bindOverlayInteractions(): void {
+    let touchIdentifier: number | null = null;
+    let touchTarget: HTMLElement | null = null;
+    let startX = 0;
+    let startY = 0;
+    let moved = false;
+    let swallowNextClick = false;
+
+    const resolveActionElement = (target: EventTarget | null): HTMLElement | null => {
+      if (!(target instanceof HTMLElement)) {
+        return null;
+      }
+      return target.closest<HTMLElement>("[data-overlay-action], [data-slot-container]");
+    };
+
+    const activateActionElement = (element: HTMLElement): void => {
+      const actionId = element.dataset.overlayAction;
+      if (actionId && this.onOverlayAction) {
+        this.onOverlayAction(actionId);
+        return;
+      }
+      const container = element.dataset.slotContainer;
+      const rawIndex = element.dataset.slotIndex;
+      if (
+        this.onOverlaySlotClick &&
+        rawIndex &&
+        (container === "player" || container === "chest" || container === "creative")
+      ) {
+        this.onOverlaySlotClick(container, Number(rawIndex));
+      }
+    };
+
+    const resetTouch = (): void => {
+      touchIdentifier = null;
+      touchTarget = null;
+      moved = false;
+    };
+
+    this.overlayEl.ontouchstart = (event) => {
+      const element = resolveActionElement(event.target);
+      const touch = event.changedTouches[0];
+      if (!element || !touch) {
+        return;
+      }
+      touchIdentifier = touch.identifier;
+      touchTarget = element;
+      startX = touch.clientX;
+      startY = touch.clientY;
+      moved = false;
+    };
+    this.overlayEl.ontouchmove = (event) => {
+      const touch = Array.from(event.changedTouches).find((entry) => entry.identifier === touchIdentifier);
+      if (!touch) {
+        return;
+      }
+      if (Math.hypot(touch.clientX - startX, touch.clientY - startY) > 12) {
+        moved = true;
+      }
+    };
+    this.overlayEl.ontouchcancel = () => {
+      resetTouch();
+    };
+    this.overlayEl.ontouchend = (event) => {
+      const touch = Array.from(event.changedTouches).find((entry) => entry.identifier === touchIdentifier);
+      const element = resolveActionElement(event.target);
+      if (!touch || !element || element !== touchTarget) {
+        resetTouch();
+        return;
+      }
+      const shouldActivate = !moved;
+      resetTouch();
+      if (!shouldActivate) {
+        return;
+      }
+      swallowNextClick = true;
+      activateActionElement(element);
+    };
+    this.overlayEl.onclick = (event) => {
+      const element = resolveActionElement(event.target);
+      if (!element) {
+        return;
+      }
+      if (swallowNextClick) {
+        swallowNextClick = false;
+        return;
+      }
+      activateActionElement(element);
+    };
+  }
+
+  private bindPress(button: HTMLButtonElement, onActivate: () => void): void {
+    let touchIdentifier: number | null = null;
+    let startX = 0;
+    let startY = 0;
+    let moved = false;
+    let swallowNextClick = false;
+
+    const resetTouch = () => {
+      touchIdentifier = null;
+      moved = false;
+    };
+
+    button.type = "button";
+    button.ontouchstart = (event) => {
+      const touch = event.changedTouches[0];
+      if (!touch) {
+        return;
+      }
+      touchIdentifier = touch.identifier;
+      startX = touch.clientX;
+      startY = touch.clientY;
+      moved = false;
+      event.stopPropagation();
+    };
+    button.ontouchmove = (event) => {
+      const touch = Array.from(event.changedTouches).find((entry) => entry.identifier === touchIdentifier);
+      if (!touch) {
+        return;
+      }
+      if (Math.hypot(touch.clientX - startX, touch.clientY - startY) > 12) {
+        moved = true;
+      }
+    };
+    button.ontouchcancel = () => {
+      resetTouch();
+    };
+    button.ontouchend = (event) => {
+      const touch = Array.from(event.changedTouches).find((entry) => entry.identifier === touchIdentifier);
+      if (!touch) {
+        return;
+      }
+      event.stopPropagation();
+      const shouldActivate = !moved;
+      resetTouch();
+      if (!shouldActivate) {
+        return;
+      }
+      swallowNextClick = true;
+      onActivate();
+    };
+    button.onclick = (event) => {
+      event.stopPropagation();
+      if (swallowNextClick) {
+        swallowNextClick = false;
+        return;
+      }
+      onActivate();
+    };
   }
 
   private ingredientTokenMarkup(itemId: ItemId, count: number): string {
@@ -532,6 +665,7 @@ export class HudController {
     const compactClass = compact ? " inventory-slot--compact" : "";
     return `
       <button
+        type="button"
         class="inventory-slot ${slot ? "inventory-slot--filled" : ""}${activeHotbarClass}${transferSelectedClass}${compactClass}"
         data-slot-container="${container}"
         data-slot-index="${index}"
@@ -759,6 +893,14 @@ export class HudController {
     `;
   }
 }
+
+
+
+
+
+
+
+
 
 
 
